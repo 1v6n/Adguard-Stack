@@ -7,7 +7,7 @@ Infraestructura local basada en contenedores para DNS seguro con AdGuard Home, p
 - `nginx_conf/default.conf`: proxy HTTPS y endpoint DoH (`/dns-query`).
 - `config/adguard/`: configuración y datos persistentes de AdGuard.
 - `letsencrypt/`: certificados y estado de renovación.
-- `scripts/`: automatización operativa (`up.sh`, `logs.sh`, `check.sh`, `backup.sh`, `preflight.sh`, `configure-adguard.sh`, `bootstrap-vm.sh`, `bootstrap-local.sh`).
+- `scripts/`: automatización operativa (`up.sh`, `logs.sh`, `check.sh`, `backup.sh`, `preflight.sh`, `configure-adguard.sh`, `issue-letsencrypt.sh`, `renew-letsencrypt.sh`, `bootstrap-vm.sh`, `bootstrap-local.sh`).
 - `docs/runbook.md`: procedimientos de operación y recuperación.
 - `docs/troubleshooting.md`: errores comunes y resolución paso a paso.
 - `.gitlab-ci.yml`: validaciones CI de Compose y Nginx.
@@ -21,7 +21,7 @@ Infraestructura local basada en contenedores para DNS seguro con AdGuard Home, p
 ```bash
 cp .env.example .env
 ```
-- Edita `PUBLIC_DOMAIN`, `DUCKDNS_SUBDOMAINS`, `DUCKDNS_TOKEN`, `ADGUARD_ADMIN_USER` y `ADGUARD_ADMIN_PASSWORD` en `.env`.
+- Edita `PUBLIC_DOMAIN`, `DUCKDNS_SUBDOMAINS`, `DUCKDNS_TOKEN`, `ADGUARD_ADMIN_USER`, `ADGUARD_ADMIN_PASSWORD`, `LETSENCRYPT_EMAIL`, `LETSENCRYPT_STAGING` y `ALLOW_SELF_SIGNED_FALLBACK` en `.env`.
 
 ## Inicio rápido
 ```bash
@@ -37,9 +37,12 @@ DUCKDNS_SUBDOMAINS="myadguardzi" \
 DUCKDNS_TOKEN="TU_TOKEN" \
 ADGUARD_ADMIN_USER="admin" \
 ADGUARD_ADMIN_PASSWORD="CAMBIAR_PASSWORD" \
+LETSENCRYPT_EMAIL="you@example.com" \
+LETSENCRYPT_STAGING="false" \
+ALLOW_SELF_SIGNED_FALLBACK="false" \
 bash /ruta/al/bootstrap-vm.sh
 ```
-El bootstrap ejecuta `scripts/preflight.sh`, crea certificado temporal si falta, y aplica la configuración inicial de AdGuard en modo headless (sin usar el wizard web).
+El bootstrap ejecuta `scripts/preflight.sh`, levanta servicios core sin `nginx`, aplica configuración headless de AdGuard, emite Let's Encrypt y recién entonces inicia `nginx`. Si falla la emisión, aborta salvo que `ALLOW_SELF_SIGNED_FALLBACK=true`.
 
 ## Bootstrap local (ya estás dentro del repo)
 Úsalo cuando ya clonaste el repositorio y quieres evitar un segundo clone:
@@ -51,6 +54,9 @@ DUCKDNS_SUBDOMAINS="tu-subdominio" \
 DUCKDNS_TOKEN="TU_TOKEN" \
 ADGUARD_ADMIN_USER="admin" \
 ADGUARD_ADMIN_PASSWORD="CAMBIAR_PASSWORD" \
+LETSENCRYPT_EMAIL="you@example.com" \
+LETSENCRYPT_STAGING="false" \
+ALLOW_SELF_SIGNED_FALLBACK="false" \
 bash scripts/bootstrap-local.sh
 ```
 
@@ -63,8 +69,18 @@ DUCKDNS_SUBDOMAINS="tu-subdominio" \
 DUCKDNS_TOKEN="TU_TOKEN" \
 ADGUARD_ADMIN_USER="admin" \
 ADGUARD_ADMIN_PASSWORD="CAMBIAR_PASSWORD" \
+LETSENCRYPT_EMAIL="you@example.com" \
+LETSENCRYPT_STAGING="false" \
+ALLOW_SELF_SIGNED_FALLBACK="false" \
 bash scripts/bootstrap-local.sh
 ```
+
+## Renovación de Let's Encrypt
+Ejecuta renovación manual:
+```bash
+./scripts/renew-letsencrypt.sh
+```
+El script reinicia `nginx` solo si detecta cambios en certificados.
 
 ## Verificación
 ```bash
