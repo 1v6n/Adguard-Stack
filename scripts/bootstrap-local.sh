@@ -9,6 +9,10 @@ cd "$ROOT_DIR"
 : "${DUCKDNS_TOKEN:?Set DUCKDNS_TOKEN}"
 : "${ADGUARD_ADMIN_USER:?Set ADGUARD_ADMIN_USER, e.g. admin}"
 : "${ADGUARD_ADMIN_PASSWORD:?Set ADGUARD_ADMIN_PASSWORD}"
+: "${LETSENCRYPT_EMAIL:?Set LETSENCRYPT_EMAIL, e.g. you@example.com}"
+
+LETSENCRYPT_STAGING="${LETSENCRYPT_STAGING:-false}"
+ALLOW_SELF_SIGNED_FALLBACK="${ALLOW_SELF_SIGNED_FALLBACK:-false}"
 
 RUN_USER="${RUN_USER:-${SUDO_USER:-$USER}}"
 
@@ -46,6 +50,9 @@ DUCKDNS_SUBDOMAINS=${DUCKDNS_SUBDOMAINS}
 DUCKDNS_TOKEN=${DUCKDNS_TOKEN}
 ADGUARD_ADMIN_USER=${ADGUARD_ADMIN_USER}
 ADGUARD_ADMIN_PASSWORD=${ADGUARD_ADMIN_PASSWORD}
+LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
+LETSENCRYPT_STAGING=${LETSENCRYPT_STAGING}
+ALLOW_SELF_SIGNED_FALLBACK=${ALLOW_SELF_SIGNED_FALLBACK}
 ENVFILE
 chmod 600 "$ROOT_DIR/.env"
 
@@ -73,17 +80,30 @@ ensure_bootstrap_cert() {
     -subj "/CN=$PUBLIC_DOMAIN"
 }
 
-ensure_bootstrap_cert
-
 echo "Validating compose file..."
 docker compose config >/dev/null
 
-echo "Pulling and starting services..."
+echo "Pulling images..."
 docker compose pull
-docker compose up -d
+echo "Starting core services (without nginx)..."
+docker compose up -d adguard duckdns certbot-renew
 
 echo "Applying headless AdGuard initial setup..."
 ENV_FILE="$ROOT_DIR/.env" "$ROOT_DIR/scripts/configure-adguard.sh"
+
+echo "Issuing Let's Encrypt certificate before exposing nginx..."
+if ENV_FILE="$ROOT_DIR/.env" "$ROOT_DIR/scripts/issue-letsencrypt.sh"; then
+  echo "Let's Encrypt certificate issued successfully."
+elif [[ "$ALLOW_SELF_SIGNED_FALLBACK" == "true" ]]; then
+  echo "Let's Encrypt issuance failed; using self-signed fallback because ALLOW_SELF_SIGNED_FALLBACK=true."
+  ensure_bootstrap_cert
+else
+  echo "Let's Encrypt issuance failed and fallback is disabled. Aborting before nginx startup." >&2
+  exit 1
+fi
+
+echo "Starting nginx..."
+docker compose up -d nginx
 
 echo "Stack status:"
 docker compose ps

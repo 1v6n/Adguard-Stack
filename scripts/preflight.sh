@@ -90,7 +90,11 @@ check_cert_files() {
     if [[ "$STRICT_CERT" == "true" ]]; then
       log_error "Certificate files missing for PUBLIC_DOMAIN=${PUBLIC_DOMAIN}"
     else
-      log_warn "Certificate files missing for PUBLIC_DOMAIN=${PUBLIC_DOMAIN} (bootstrap can generate a temporary self-signed cert)"
+      if [[ "${ALLOW_SELF_SIGNED_FALLBACK:-false}" == "true" ]]; then
+        log_warn "Certificate files missing for PUBLIC_DOMAIN=${PUBLIC_DOMAIN} (self-signed fallback is enabled)"
+      else
+        log_warn "Certificate files missing for PUBLIC_DOMAIN=${PUBLIC_DOMAIN} (bootstrap will attempt Let's Encrypt before nginx startup)"
+      fi
     fi
   fi
 }
@@ -111,6 +115,7 @@ require_env DUCKDNS_SUBDOMAINS
 require_env DUCKDNS_TOKEN
 require_env ADGUARD_ADMIN_USER
 require_env ADGUARD_ADMIN_PASSWORD
+require_env LETSENCRYPT_EMAIL
 check_port_conflicts
 check_cert_files
 
