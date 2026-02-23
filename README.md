@@ -14,7 +14,8 @@ Infraestructura local basada en contenedores para DNS seguro con AdGuard Home, p
 
 ## Requisitos
 - Docker Engine + Docker Compose plugin.
-- Puertos disponibles: `53`, `80`, `443`, `853`, `3000`.
+- Puertos usados por defecto en operación: `53`, `80`, `443`, `853`.
+- `3000` queda publicado solo en loopback (`127.0.0.1`) para diagnóstico/recuperación manual de AdGuard.
 - Acceso a dominio DuckDNS configurado.
 
 ## Configuración de entorno
@@ -23,9 +24,25 @@ cp .env.example .env
 ```
 - Edita `PUBLIC_DOMAIN`, `DUCKDNS_SUBDOMAINS`, `DUCKDNS_TOKEN`, `ADGUARD_ADMIN_USER`, `ADGUARD_ADMIN_PASSWORD`, `LETSENCRYPT_EMAIL`, `LETSENCRYPT_STAGING`, `ALLOW_SELF_SIGNED_FALLBACK`, `INSTALL_RENEW_TIMER`, `RENEW_TIMER_ONCALENDAR` y `RENEW_TIMER_RANDOMIZED_DELAY` en `.env`.
 
-## Inicio rápido
+## Primer despliegue local (recomendado)
+Ejecútalo dentro del repositorio:
 ```bash
-./scripts/up.sh
+sudo PUBLIC_DOMAIN="tu-subdominio.duckdns.org" \
+DUCKDNS_SUBDOMAINS="tu-subdominio" \
+DUCKDNS_TOKEN="TU_TOKEN" \
+ADGUARD_ADMIN_USER="admin" \
+ADGUARD_ADMIN_PASSWORD="CAMBIAR_PASSWORD" \
+LETSENCRYPT_EMAIL="you@example.com" \
+LETSENCRYPT_STAGING="false" \
+ALLOW_SELF_SIGNED_FALLBACK="false" \
+INSTALL_RENEW_TIMER="true" \
+bash scripts/bootstrap-local.sh
+```
+
+Si aún no clonaste el repositorio:
+```bash
+git clone https://github.com/1v6n/adguard-stack.git
+cd adguard-stack
 ```
 
 ## Bootstrap remoto (clona/actualiza en `/opt/adguard-stack`)
@@ -41,69 +58,21 @@ LETSENCRYPT_EMAIL="you@example.com" \
 LETSENCRYPT_STAGING="false" \
 ALLOW_SELF_SIGNED_FALLBACK="false" \
 INSTALL_RENEW_TIMER="true" \
-bash /ruta/al/bootstrap-vm.sh
+bash /ruta/al/adguard-stack/scripts/bootstrap-vm.sh
 ```
-El bootstrap ejecuta `scripts/preflight.sh`, levanta servicios core sin `nginx`, aplica configuración headless de AdGuard, emite Let's Encrypt, inicia `nginx` y registra un timer `systemd` para renovación automática (si `INSTALL_RENEW_TIMER=true`). Si falla la emisión, aborta salvo que `ALLOW_SELF_SIGNED_FALLBACK=true`.
+El bootstrap ejecuta `scripts/preflight.sh`, levanta servicios core sin `nginx`, aplica configuración headless de AdGuard, emite Let's Encrypt, inicia `nginx` y configura renovación automática: timer `systemd` si `INSTALL_RENEW_TIMER=true`, o contenedor `certbot-renew` si `INSTALL_RENEW_TIMER=false`. Si falla la emisión, aborta salvo que `ALLOW_SELF_SIGNED_FALLBACK=true`.
 
-## Bootstrap local (ya estás dentro del repo)
-Úsalo cuando ya clonaste el repositorio y quieres evitar un segundo clone:
+## Operación diaria (stack ya inicializado)
 ```bash
-git clone https://github.com/1v6n/adguard-stack.git
-cd adguard-stack
-sudo PUBLIC_DOMAIN="tu-subdominio.duckdns.org" \
-DUCKDNS_SUBDOMAINS="tu-subdominio" \
-DUCKDNS_TOKEN="TU_TOKEN" \
-ADGUARD_ADMIN_USER="admin" \
-ADGUARD_ADMIN_PASSWORD="CAMBIAR_PASSWORD" \
-LETSENCRYPT_EMAIL="you@example.com" \
-LETSENCRYPT_STAGING="false" \
-ALLOW_SELF_SIGNED_FALLBACK="false" \
-INSTALL_RENEW_TIMER="true" \
-bash scripts/bootstrap-local.sh
+./scripts/up.sh
 ```
 
-## Setup limpio desde cero (recomendado)
-```bash
-git clone https://github.com/1v6n/adguard-stack.git
-cd adguard-stack
-sudo PUBLIC_DOMAIN="tu-subdominio.duckdns.org" \
-DUCKDNS_SUBDOMAINS="tu-subdominio" \
-DUCKDNS_TOKEN="TU_TOKEN" \
-ADGUARD_ADMIN_USER="admin" \
-ADGUARD_ADMIN_PASSWORD="CAMBIAR_PASSWORD" \
-LETSENCRYPT_EMAIL="you@example.com" \
-LETSENCRYPT_STAGING="false" \
-ALLOW_SELF_SIGNED_FALLBACK="false" \
-INSTALL_RENEW_TIMER="true" \
-bash scripts/bootstrap-local.sh
-```
-
-## Renovación de Let's Encrypt
-Ejecuta renovación manual:
-```bash
-./scripts/renew-letsencrypt.sh
-```
-El script reinicia `nginx` solo si detecta cambios en certificados.
-
-Para instalar/reinstalar timer automático manualmente:
-```bash
-sudo ./scripts/install-renew-timer.sh
-```
-
-Ver estado del timer y últimos/ próximos ciclos:
-```bash
-./scripts/renew-timer-status.sh
-```
-
-Desinstalar timer automático:
-```bash
-sudo ./scripts/uninstall-renew-timer.sh
-```
-
-Previsualizar desinstalación sin cambios:
-```bash
-sudo DRY_RUN=true ./scripts/uninstall-renew-timer.sh
-```
+## Checklist post-bootstrap
+- `sudo docker compose ps`
+- `./scripts/renew-timer-status.sh`
+- `curl -vk https://<PUBLIC_DOMAIN>`
+- Verificar emisor de certificado con:
+  - `echo | openssl s_client -connect "<PUBLIC_DOMAIN>:443" -servername "<PUBLIC_DOMAIN>" 2>/dev/null | openssl x509 -noout -issuer -subject -dates`
 
 ## Verificación
 ```bash
@@ -140,10 +109,13 @@ KEEP_BACKUPS=14 ./scripts/backup.sh
 
 ## Puertos a abrir en Oracle Cloud (OCI)
 - `22/tcp`: solo desde tu IP de administración (SSH).
-- `80/tcp`: público (`0.0.0.0/0`) para HTTP y redirección.
-- `443/tcp`: público (`0.0.0.0/0`) para HTTPS/DoH vía Nginx.
-- `53/tcp` y `53/udp`: DNS (idealmente restringido a tus clientes/CIDR de confianza).
-- `853/tcp`: DNS-over-TLS (DoT).
-- `853/udp`: abrir solo si vas a usar DoQ.
-- `3000/tcp`: solo para setup inicial de AdGuard; luego cerrar o restringir.
-- `8443/tcp`: no requerido en la configuración actual.
+- `443/tcp`: HTTPS/DoH vía Nginx.
+- `853/tcp`: DoT.
+- Opcionales según caso: `80/tcp` (redirección HTTP), `53/tcp+udp` (DNS clásico), `853/udp` (DoQ).
+- `3000/tcp` no se abre en OCI: queda en loopback local para diagnóstico.
+- Política detallada y criterio operativo en `docs/runbook.md`.
+
+## Referencias operativas
+- Operación diaria, renovación de certificados y lifecycle del timer: `docs/runbook.md`.
+- Incidentes frecuentes y resolución: `docs/troubleshooting.md`.
+- Estándar de documentación para cambios futuros: `docs/OPERATIONS_STANDARD.md`.
