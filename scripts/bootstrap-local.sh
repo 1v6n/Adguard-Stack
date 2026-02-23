@@ -92,7 +92,7 @@ docker compose config >/dev/null
 echo "Pulling images..."
 docker compose pull
 echo "Starting core services (without nginx)..."
-docker compose up -d adguard duckdns certbot-renew
+docker compose up -d adguard duckdns
 
 echo "Applying headless AdGuard initial setup..."
 ENV_FILE="$ROOT_DIR/.env" "$ROOT_DIR/scripts/configure-adguard.sh"
@@ -119,6 +119,11 @@ if [[ "$INSTALL_RENEW_TIMER" == "true" ]]; then
   RENEW_TIMER_ONCALENDAR="$RENEW_TIMER_ONCALENDAR" \
   RENEW_TIMER_RANDOMIZED_DELAY="$RENEW_TIMER_RANDOMIZED_DELAY" \
   "$ROOT_DIR/scripts/install-renew-timer.sh"
+  echo "Ensuring fallback container renewal is stopped (timer mode)."
+  docker compose stop certbot-renew >/dev/null 2>&1 || true
+else
+  echo "Systemd timer disabled; starting fallback renewal container."
+  docker compose up -d certbot-renew
 fi
 
 echo "Stack status:"
