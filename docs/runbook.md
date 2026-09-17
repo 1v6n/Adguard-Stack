@@ -1,31 +1,39 @@
 # Operations Runbook
 
-## Clean Start (recommended)
-1. Prepare environment configuration:
-   - `cp .env.example .env` (first run only)
-   - Fill required variables in `.env`:
-     - `PUBLIC_DOMAIN`
-     - `DUCKDNS_SUBDOMAINS`
-     - `DUCKDNS_TOKEN`
-     - `ADGUARD_ADMIN_USER`
-     - `ADGUARD_ADMIN_PASSWORD`
-     - `LETSENCRYPT_EMAIL`
-2. Run local bootstrap (LE-first flow):
-   - `sudo PUBLIC_DOMAIN="your-subdomain.duckdns.org" DUCKDNS_SUBDOMAINS="your-subdomain" DUCKDNS_TOKEN="YOUR_TOKEN" ADGUARD_ADMIN_USER="admin" ADGUARD_ADMIN_PASSWORD="CHANGE_PASSWORD" LETSENCRYPT_EMAIL="you@example.com" LETSENCRYPT_STAGING="false" ALLOW_SELF_SIGNED_FALLBACK="false" INSTALL_RENEW_TIMER="true" bash scripts/bootstrap-local.sh`
-3. Confirm status:
-   - `sudo docker compose ps`
-4. Validate renewal timer:
-   - `./scripts/renew-timer-status.sh`
-   - If `INSTALL_RENEW_TIMER=true`, `certbot-renew` should be stopped.
+## Clean Installation
+1. Configure environment variables:
+   ```bash
+   cp .env.example .env
+   ```
+   Fill in required values in `.env`: `PUBLIC_DOMAIN`, `DUCKDNS_SUBDOMAINS`, `DUCKDNS_TOKEN`, `NETBIRD_IP`, `ADGUARD_ADMIN_USER`, `ADGUARD_ADMIN_PASSWORD`, and `LETSENCRYPT_EMAIL`.
+2. Run the bootstrap script:
+   ```bash
+   sudo bash scripts/bootstrap-local.sh
+   ```
+3. Verify running containers:
+   ```bash
+   sudo docker compose ps
+   ```
+4. Check renewal timer status:
+   ```bash
+   ./scripts/renew-timer-status.sh
+   ```
+   When `INSTALL_RENEW_TIMER=true`, the `certbot-renew` container remains stopped while the systemd timer runs renewals.
 
 ## Functional Validation
-1. Open `https://<PUBLIC_DOMAIN>` and confirm AdGuard access.
-2. Verify DoH endpoint: `https://<PUBLIC_DOMAIN>/dns-query`.
+1. From outside NetBird (public internet):
+   - Dashboard check: `curl -I https://<PUBLIC_DOMAIN>/` must return HTTP 403 Forbidden.
+   - Public DNS check: `dig @<OCI_PUBLIC_IP> google.com` must time out or refuse connections.
+   - DoH check: `curl -sS -H "accept: application/dns-message" "https://<PUBLIC_DOMAIN>/dns-query?dns=AAABAAABAAAAAAAAB2V4YW1wbGUDY29tAAABAAE"` must return raw DNS records.
+2. From inside NetBird:
+   - Dashboard: open `https://<PUBLIC_DOMAIN>/` (with NetBird DNS routing active) or `http://<NETBIRD_IP>:3000`.
+   - DNS resolution: `dig @<NETBIRD_IP> google.com` resolves with AdGuard filtering.
 3. Review logs: `./scripts/logs.sh 200`.
 4. Validate served certificate:
-   - `echo | openssl s_client -connect "<PUBLIC_DOMAIN>:443" -servername "<PUBLIC_DOMAIN>" 2>/dev/null | openssl x509 -noout -issuer -subject -dates`
-5. Confirm exposure policy:
-   - `3000/tcp` is bound to host loopback (`127.0.0.1`); do not open it in OCI.
+   ```bash
+   echo | openssl s_client -connect "<PUBLIC_DOMAIN>:443" -servername "<PUBLIC_DOMAIN>" 2>/dev/null | openssl x509 -noout -issuer -subject -dates
+   ```
+5. Verify port isolation: ports 53, 3000, and 853 must bind only to `NETBIRD_IP` and remain closed in OCI Security Lists.
 
 ## Certificate Renewal
 - Recommended mode (Linux with systemd): `adguard-renew.timer`.
@@ -66,18 +74,22 @@
 - Update `.env`, restart services, and validate access:
   - `sudo docker compose restart duckdns adguard nginx`
 
-## Recommended OCI Port Policy
-- `22/tcp`: admin IP only.
-- `80/tcp`: public only if using HTTP→HTTPS redirect.
-- `443/tcp`: public for HTTPS/DoH.
-- `853/tcp`: public for DoT.
-- `53/tcp` and `53/udp`: open only if you need classic DNS.
-- `853/udp`: open only if you need DoQ.
-- `3000/tcp`: do not open (loopback-only local diagnostics).
+## OCI Firewall and NetBird Port Policy
+- `443/tcp`: Open to `0.0.0.0/0` for HTTPS and DoH. Non-VPN access to `/` receives HTTP 403.
+- `51820/udp`: Open to `0.0.0.0/0` for direct NetBird WireGuard connections.
+- `53/tcp` & `53/udp`: Keep closed in OCI to prevent open resolver attacks. Available only over NetBird (`<NETBIRD_IP>:53`).
+- `3000/tcp` & `853/tcp+udp`: Keep closed in OCI. Bound strictly to `NETBIRD_IP`.
+- `22/tcp`: Keep closed if possible. Use NetBird SSH (`netbird ssh` or SSH over `NETBIRD_IP`).
+- `80/tcp`: Open only if you need HTTP-to-HTTPS redirect.
 
-## Incidents and Diagnostics
-- For known issue playbooks, use `docs/troubleshooting.md`.
+## NetBird DNS Routing for Valid TLS
+1. In the NetBird Admin Console under **DNS** > **Add Nameserver**:
+   - Set the nameserver address to `<NETBIRD_IP>`.
+   - Add a Match Domain rule for `<PUBLIC_DOMAIN>` pointing to this nameserver.
+2. With NetBird active, opening `https://<PUBLIC_DOMAIN>` routes directly over WireGuard to Nginx, validating the Let's Encrypt certificate without browser warnings.
 
-## Recommended Backups
-- Run `./scripts/backup.sh` before major changes.
-- Verify backup artifacts in `backups/`.
+## Incident Playbooks
+See `docs/troubleshooting.md` for known errors and recovery steps.
+
+## Backups
+Run `./scripts/backup.sh` before major configuration changes. Verified archives are saved in `backups/`.

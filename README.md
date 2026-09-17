@@ -1,28 +1,30 @@
 # AdGuard Stack
 
-Container-based infrastructure for secure DNS using AdGuard Home, TLS proxying with Nginx, dynamic DNS updates via DuckDNS, and automated certificate lifecycle management.
+Docker stack running AdGuard Home behind an Nginx TLS proxy with DuckDNS dynamic DNS and automated Let's Encrypt certificates.
 
 ## Structure
-- `docker-compose.yml`: service and network definitions.
-- `nginx_conf/default.conf`: HTTPS reverse proxy and DoH endpoint (`/dns-query`).
-- `config/adguard/`: persistent AdGuard configuration and data.
-- `letsencrypt/`: certificate files and renewal state.
-- `scripts/`: operational automation (`up.sh`, `logs.sh`, `check.sh`, `backup.sh`, `preflight.sh`, `configure-adguard.sh`, `issue-letsencrypt.sh`, `renew-letsencrypt.sh`, `install-renew-timer.sh`, `uninstall-renew-timer.sh`, `renew-timer-status.sh`, `bootstrap-vm.sh`, `bootstrap-local.sh`).
-- `docs/runbook.md`: daily operations and recovery procedures.
-- `docs/troubleshooting.md`: common incidents and step-by-step fixes.
-- `.gitlab-ci.yml`: CI checks for Compose and Nginx.
+- `docker-compose.yml`: service definitions, networks, and port bindings.
+- `nginx_conf/default.conf`: HTTPS reverse proxy, NetBird access control, and DoH endpoint (`/dns-query`).
+- `config/adguard/`: persistent AdGuard configuration and query data.
+- `letsencrypt/`: TLS certificates and renewal state.
+- `scripts/`: deployment, verification, backup, and renewal automation.
+- `docs/runbook.md`: operational routines, port policies, and recovery steps.
+- `docs/troubleshooting.md`: common failures and verified fixes.
 
 ## Requirements
-- Docker Engine + Docker Compose plugin.
-- Default runtime ports: `53`, `80`, `443`, `853`.
-- Port `3000` is bound to loopback only (`127.0.0.1`) for AdGuard diagnostics/recovery.
-- A DuckDNS domain with a valid token.
+- Docker Engine with Compose plugin.
+- NetBird installed and connected on the host (`netbird status` or `wt0` interface).
+- Port layout:
+  - Public: `443` (DoH on `/dns-query`), `80` (optional HTTP-to-HTTPS redirect).
+  - Private (NetBird only): `53` (DNS), `3000` (AdGuard setup/UI), and `853` (DoT) bound to `NETBIRD_IP`.
+  - Dashboard: restricted to NetBird clients (`100.64.0.0/10` and private subnets) and localhost.
+- A DuckDNS domain and token.
 
 ## Environment Setup
 ```bash
 cp .env.example .env
 ```
-- Set `PUBLIC_DOMAIN`, `DUCKDNS_SUBDOMAINS`, `DUCKDNS_TOKEN`, `ADGUARD_ADMIN_USER`, `ADGUARD_ADMIN_PASSWORD`, `LETSENCRYPT_EMAIL`, `LETSENCRYPT_STAGING`, `ALLOW_SELF_SIGNED_FALLBACK`, `INSTALL_RENEW_TIMER`, `RENEW_TIMER_ONCALENDAR`, and `RENEW_TIMER_RANDOMIZED_DELAY` in `.env`.
+Edit `.env` with your domain, credentials, and NetBird IP (`netbird status` or `ip -4 addr show wt0`).
 
 ## First Local Deployment (Recommended)
 Run inside the repository:
@@ -107,15 +109,16 @@ KEEP_BACKUPS=14 ./scripts/backup.sh
 - Never commit tokens or private keys to public repositories.
 - Keep sensitive values in `.env` and out of version control.
 
-## Oracle Cloud (OCI) Ports to Open
-- `22/tcp`: only from your admin IP (SSH).
-- `443/tcp`: HTTPS/DoH through Nginx.
-- `853/tcp`: DoT.
-- Optional: `80/tcp` (HTTP redirect), `53/tcp+udp` (classic DNS), `853/udp` (DoQ).
-- Do not open `3000/tcp` in OCI; it is loopback-only for local diagnostics.
-- Detailed policy and operational criteria: `docs/runbook.md`.
+## OCI Security List Policy
+- `443/tcp`: Open to `0.0.0.0/0` for DoH (`/dns-query`). Dashboard access on `/` returns HTTP 403 for non-VPN IPs.
+- `51820/udp`: Open to `0.0.0.0/0` for direct NetBird WireGuard connections.
+- `53/udp & 53/tcp`: Keep closed in OCI to prevent open resolver attacks. Available only within NetBird.
+- `3000/tcp & 853/tcp+udp`: Keep closed in OCI. Bound strictly to `NETBIRD_IP`.
+- `22/tcp`: Keep closed if possible. Use NetBird SSH (`netbird ssh` or SSH over `NETBIRD_IP`).
+- `80/tcp`: Optional. Open only if HTTP-to-HTTPS redirect is required.
+- Full details in `docs/runbook.md`.
 
 ## Operational References
-- Daily operations, certificate renewal, and timer lifecycle: `docs/runbook.md`.
-- Common incidents and fixes: `docs/troubleshooting.md`.
-- Documentation quality standard for future changes: `docs/OPERATIONS_STANDARD.md`.
+- Operations, renewals, and timer lifecycle: `docs/runbook.md`.
+- Incidents and fixes: `docs/troubleshooting.md`.
+- Documentation standards: `docs/OPERATIONS_STANDARD.md`.

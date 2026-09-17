@@ -1,12 +1,11 @@
 # Troubleshooting Guide
 
-> Recommended canonical path for manual operations: `~/adguard-stack`.
-> Use `/opt/adguard-stack` only if you deployed with `bootstrap-vm.sh`.
+Default directory: `~/adguard-stack` (or `/opt/adguard-stack` if deployed with `bootstrap-vm.sh`).
 
-## Known Incidents and Fixes
+## Common Incidents and Solutions
 
-### 1) `failed to bind host port ... :53 ... address already in use`
-- **Cause**: Host DNS service (`systemd-resolved`) is already listening on port `53`.
+### 1. Port 53 bind error (address already in use)
+- **Cause**: Host DNS resolver (`systemd-resolved`) is listening on port 53.
 - **Diagnosis**:
   ```bash
   sudo ss -ltnup | grep ':53 '
@@ -22,64 +21,66 @@
   sudo systemctl restart systemd-resolved
   ```
 
-### 2) `no configuration file provided: not found`
-- **Cause**: `docker compose` is executed outside the project directory.
+### 2. Compose file not found
+- **Cause**: `docker compose` was run outside the project repository.
 - **Fix**:
   ```bash
   cd ~/adguard-stack
-  # or, if you used remote bootstrap:
-  # cd /opt/adguard-stack
   docker compose ps
   ```
 
-### 3) `.env` permission denied
-- **Cause**: `.env` was created by root and cannot be read by the runtime user.
+### 3. Permission denied reading .env
+- **Cause**: Root created `.env` with restrictive permissions.
 - **Fix**:
   ```bash
-  # local stack:
-  sudo chown "$USER:$USER" ~/adguard-stack/.env
-  chmod 600 ~/adguard-stack/.env
-  # remote stack:
-  # sudo chown <user>:<group> /opt/adguard-stack/.env
+  sudo chown "$USER:$USER" .env
+  chmod 600 .env
   ```
 
-### 4) Nginx crash loop: missing certificate
-- **Cause**: TLS files are missing in `letsencrypt/live/<domain>/`.
+### 4. Nginx crash loop on missing TLS certificate
+- **Cause**: Certificate files are missing in `letsencrypt/live/<domain>/`.
 - **Fix**:
-  - Preferred flow: LE-first (`ALLOW_SELF_SIGNED_FALLBACK=false`), issue certificate before starting `nginx`.
-  - Contingency only: allow self-signed fallback with `ALLOW_SELF_SIGNED_FALLBACK=true`.
+  Run certificate issuance before starting Nginx:
+  ```bash
+  sudo ./scripts/issue-letsencrypt.sh
+  docker compose restart nginx
+  ```
+  Use `ALLOW_SELF_SIGNED_FALLBACK="true"` only as a temporary recovery fallback.
 
-### 5) `No route to host` when curling public IP from inside the VM
-- **Cause**: Cloud networking behavior (hairpin/routing constraints).
-- **Fix**: validate locally through `127.0.0.1` and validate externally from another host.
+### 5. "No route to host" when curling public IP from inside the VM
+- **Cause**: Cloud provider hairpin routing limits on the public interface.
+- **Fix**: Test locally against `127.0.0.1` inside the VM, and test the public domain from an external network.
 
-### 6) `/home/.../.env: line ... 03:17:00: command not found`
-- **Cause**: `RENEW_TIMER_ONCALENDAR` in `.env` is missing quotes.
+### 6. Syntax error in .env: command not found
+- **Cause**: Unquoted time string in `RENEW_TIMER_ONCALENDAR`.
 - **Fix**:
   ```bash
   sed -i 's/^RENEW_TIMER_ONCALENDAR=.*/RENEW_TIMER_ONCALENDAR="*-*-* 03:17:00"/' .env
   ```
 
-### 7) `502 Bad Gateway` while Nginx is up but AdGuard is unreachable
-- **Cause**: path/project mismatch (stack started from one directory, config edited in another) or AdGuard still in first-run state (`/install.html`).
+### 7. HTTP 502 Bad Gateway from Nginx
+- **Cause**: Mismatched mount paths between commands, or AdGuard is still unconfigured (`/install.html`).
 - **Fix**:
   ```bash
   sudo docker inspect adguard --format '{{range .Mounts}}{{println .Source "->" .Destination}}{{end}}'
-  # edit config in the real mounted path and restart from that same project directory
   ```
+  Ensure all commands run from the same stack directory.
 
-### 8) Duplicate renewal or unexpected Nginx restarts
-- **Cause**: both `systemd` timer and `certbot-renew` container are active.
+### 8. Duplicate renewals or recurring Nginx reloads
+- **Cause**: Both the systemd renewal timer and the `certbot-renew` container are running.
 - **Fix**:
   ```bash
-  # recommended mode
+  # Check timer status and stop the container
   ./scripts/renew-timer-status.sh
   docker compose stop certbot-renew
-
-  # fallback mode (without systemd)
-  sudo ./scripts/uninstall-renew-timer.sh
-  docker compose up -d certbot-renew
   ```
+
+### 9. HTTP 403 Forbidden on AdGuard dashboard
+- **Cause**: Client IP is outside allowed NetBird VPN subnets (`100.64.0.0/10` or private ranges). This happens when connecting without NetBird active, or when `<PUBLIC_DOMAIN>` resolves to the VM's public IP rather than its NetBird IP.
+- **Fix**:
+  1. Confirm NetBird is connected: `netbird status`.
+  2. In NetBird Admin Console under **DNS** > **Nameservers**, add a Match Domain rule routing `<PUBLIC_DOMAIN>` to `<NETBIRD_IP>`.
+  3. Or open the diagnostic UI directly at `http://<NETBIRD_IP>:3000`.
 
 ## Quick Validation Sequence
 ```bash
