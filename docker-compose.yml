@@ -36,7 +36,7 @@ services:
       - ./nginx_conf/default.conf:/etc/nginx/templates/default.conf.template:ro
       - ./letsencrypt:/etc/letsencrypt:ro # Read-only access to certs
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1 || exit 1"]
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/healthz || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
