@@ -99,6 +99,35 @@ check_cert_files() {
   fi
 }
 
+check_vpn() {
+  local vpn_ip="${NETBIRD_IP:-${TAILSCALE_IP:-}}"
+  if [[ -n "$vpn_ip" ]]; then
+    log_info "VPN IP configured for private bindings: ${vpn_ip}"
+  else
+    log_warn "NETBIRD_IP is not set in .env; AdGuard private ports will bind to 127.0.0.1 (local only)"
+  fi
+
+  if ip link show dev wt0 >/dev/null 2>&1; then
+    log_info "NetBird interface wt0 is present"
+  elif command -v netbird >/dev/null 2>&1; then
+    local nb_status
+    if nb_status="$(netbird status 2>&1)"; then
+      log_info "NetBird service is active on host"
+    else
+      log_warn "NetBird CLI found but service not connected: ${nb_status}"
+    fi
+  elif command -v tailscale >/dev/null 2>&1; then
+    local ts_status
+    if ts_status="$(tailscale status 2>&1)"; then
+      log_info "Tailscale service is active on host"
+    else
+      log_warn "Tailscale command is available but not connected: ${ts_status}"
+    fi
+  else
+    log_warn "Neither NetBird (wt0 interface) nor Tailscale detected on host. Ensure your VPN is active."
+  fi
+}
+
 log_info "Running preflight checks in $ROOT_DIR"
 require_cmd docker
 require_cmd ss
@@ -118,6 +147,7 @@ require_env ADGUARD_ADMIN_PASSWORD
 require_env LETSENCRYPT_EMAIL
 check_port_conflicts
 check_cert_files
+check_vpn
 
 if [[ "$errors" -gt 0 ]]; then
   echo "Preflight failed with ${errors} error(s) and ${warnings} warning(s)."

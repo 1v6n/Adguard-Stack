@@ -16,6 +16,31 @@ ALLOW_SELF_SIGNED_FALLBACK="${ALLOW_SELF_SIGNED_FALLBACK:-false}"
 INSTALL_RENEW_TIMER="${INSTALL_RENEW_TIMER:-true}"
 RENEW_TIMER_ONCALENDAR="${RENEW_TIMER_ONCALENDAR:-*-*-* 03:17:00}"
 RENEW_TIMER_RANDOMIZED_DELAY="${RENEW_TIMER_RANDOMIZED_DELAY:-45m}"
+detect_vpn_ip() {
+  local ip
+  ip="$(ip -4 -o addr show dev wt0 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1 || true)"
+  if [[ -n "$ip" ]]; then
+    echo "$ip"
+    return
+  fi
+  if command -v netbird >/dev/null 2>&1; then
+    ip="$(netbird status 2>/dev/null | awk -F': ' '/NetBird IP/ {print $2}' | cut -d/ -f1 | head -n1 || true)"
+    if [[ -n "$ip" ]]; then
+      echo "$ip"
+      return
+    fi
+  fi
+  if command -v tailscale >/dev/null 2>&1; then
+    ip="$(tailscale ip -4 2>/dev/null || true)"
+    if [[ -n "$ip" ]]; then
+      echo "$ip"
+      return
+    fi
+  fi
+  echo "127.0.0.1"
+}
+
+NETBIRD_IP="${NETBIRD_IP:-${TAILSCALE_IP:-$(detect_vpn_ip)}}"
 
 RUN_USER="${RUN_USER:-${SUDO_USER:-$USER}}"
 
@@ -51,6 +76,7 @@ cat > "$ROOT_DIR/.env" <<ENVFILE
 PUBLIC_DOMAIN=${PUBLIC_DOMAIN}
 DUCKDNS_SUBDOMAINS=${DUCKDNS_SUBDOMAINS}
 DUCKDNS_TOKEN=${DUCKDNS_TOKEN}
+NETBIRD_IP=${NETBIRD_IP}
 ADGUARD_ADMIN_USER=${ADGUARD_ADMIN_USER}
 ADGUARD_ADMIN_PASSWORD=${ADGUARD_ADMIN_PASSWORD}
 LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
