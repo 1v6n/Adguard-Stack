@@ -5,11 +5,16 @@ services:
     container_name: adguard
     restart: unless-stopped
     ports:
-      - "53:53/tcp"
-      - "53:53/udp"
-      - "127.0.0.1:3000:3000/tcp" # Setup/diagnóstico local (no público)
-      - "853:853/tcp" # DNS-over-TLS
-      - "853:853/udp" # DNS-over-QUIC (opcional)
+      - "${NETBIRD_IP:-${TAILSCALE_IP:-127.0.0.1}}:53:53/tcp"
+      - "${NETBIRD_IP:-${TAILSCALE_IP:-127.0.0.1}}:53:53/udp"
+      - "${NETBIRD_IP:-${TAILSCALE_IP:-127.0.0.1}}:3000:3000/tcp" # Setup/diagnóstico en NetBird o local (no público)
+      - "${NETBIRD_IP:-${TAILSCALE_IP:-127.0.0.1}}:853:853/tcp" # DNS-over-TLS (NetBird/local)
+      - "${NETBIRD_IP:-${TAILSCALE_IP:-127.0.0.1}}:853:853/udp" # DNS-over-QUIC (NetBird/local)
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     volumes:
       - ./config/adguard/work:/opt/adguardhome/work
       - ./config/adguard/conf:/opt/adguardhome/conf
@@ -36,6 +41,11 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - adguard-net
     depends_on:
@@ -50,6 +60,11 @@ services:
       - SUBDOMAINS=${DUCKDNS_SUBDOMAINS} # Just the "name" part (e.g., if myhome.duckdns.org, put 'myhome')
       - TOKEN=${DUCKDNS_TOKEN}
       - LOG_FILE=false
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - adguard-net
 
@@ -61,6 +76,11 @@ services:
       - ./letsencrypt:/etc/letsencrypt
     # This entrypoint checks if cert needs renewal, renews, and reloads nginx
     entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - adguard-net
 
